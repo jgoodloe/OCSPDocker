@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  cert-checker:
+    build: .
+    # Or use a pre-built image:
+    # image: your-registry/certificate-checker:latest
+    
+    volumes:
+      # Mount your certificate file
+      - ./certs:/app/certs:ro
+      # Optional: Mount custom config file
+      - ./config.yaml:/app/config.yaml:ro
+    
+    environment:
+      # Certificate path (required)
+      - CERTIFICATE_PATH=/app/certs/certificate.pem
+      
+      # Schedule interval in seconds
+      # 60 = 1 minute, 300 = 5 minutes, 900 = 15 minutes, 3600 = 1 hour
+      - SCHEDULE_INTERVAL=300
+      
+      # Certificate expiration warnings
+      - CERT_EXPIRY_WARNING_HOURS=24
+      - CERT_EXPIRY_WARNING_DAYS=30
+      
+      # CRL expiration warnings
+      - CRL_EXPIRY_WARNING_HOURS=24
+      - CRL_EXPIRY_WARNING_MINUTES=60
+      
+      # Notification URLs (configure as needed)
+      # HTTP Push (Uptime Kuma)
+      - HTTP_PUSH_URL=http://192.168.2.5:3001/api/push/9TwqAsFUR0?status=up&msg=OK&OCSP=OK
+      
+      # Generic Webhook
+      # - WEBHOOK_URL=https://example.com/webhook
+      
+      # Microsoft Teams
+      # - TEAMS_WEBHOOK_URL=https://outlook.office.com/webhook/your-webhook-url
+      
+      # Google Chat
+      # - GOOGLE_CHAT_WEBHOOK_URL=https://chat.googleapis.com/v1/spaces/your-space/messages?key=your-key
+      
+      # SMS via Twilio
+      # - TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      # - TWILIO_AUTH_TOKEN=your-auth-token
+      # - TWILIO_FROM=+1234567890
+      # - TWILIO_TO=+0987654321
+    
+    restart: unless-stopped
+    
+    # Optional: Add healthcheck
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
