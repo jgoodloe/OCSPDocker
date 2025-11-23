@@ -2,6 +2,8 @@
 """
 Certificate Checker Service
 Checks certificates, validates chains, checks CRLs, and sends notifications
+
+Version: 1.1.0 (Fixed notifications NoneType error)
 """
 
 import os
@@ -511,8 +513,12 @@ class CertificateChecker:
         """Send results to all configured notification destinations"""
         sent = []
         
-        # Ensure notifications is a dict
-        notifications = self.config.get('notifications') or {}
+        # Ensure notifications is a dict - multiple safety checks
+        notifications = self.config.get('notifications')
+        if notifications is None or not isinstance(notifications, dict):
+            notifications = {}
+            # Also fix it in config for future access
+            self.config['notifications'] = notifications
         
         if notifications.get('http_push'):
             if self.send_http_push(results):
@@ -554,6 +560,10 @@ class CertificateChecker:
     
     def start_scheduler(self):
         """Start the scheduled service"""
+        # Debug: Verify notifications is properly initialized
+        if 'notifications' not in self.config or self.config['notifications'] is None:
+            self.config['notifications'] = {}
+        
         interval = int(self.config.get('schedule_interval', 60))
         
         # Map interval to schedule
@@ -583,6 +593,7 @@ class CertificateChecker:
 
 def main():
     """Main entry point"""
+    print("Certificate Checker Service v1.1.0 (Fixed notifications NoneType error)", file=sys.stderr)
     config_path = os.getenv('CONFIG_PATH', 'config.yaml')
     checker = CertificateChecker(config_path)
     checker.start_scheduler()
