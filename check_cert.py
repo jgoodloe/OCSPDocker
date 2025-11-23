@@ -46,23 +46,41 @@ class CertificateChecker:
         config['crl_expiry_warning_hours'] = int(os.getenv('CRL_EXPIRY_WARNING_HOURS', config.get('crl_expiry_warning_hours', 24)))
         config['crl_expiry_warning_minutes'] = int(os.getenv('CRL_EXPIRY_WARNING_MINUTES', config.get('crl_expiry_warning_minutes', 60)))
         
-        # Notification configs
-        config['notifications'] = config.get('notifications', {})
-        if os.getenv('HTTP_PUSH_URL'):
-            config['notifications']['http_push'] = {'url': os.getenv('HTTP_PUSH_URL')}
-        if os.getenv('WEBHOOK_URL'):
-            config['notifications']['webhook'] = {'url': os.getenv('WEBHOOK_URL')}
-        if os.getenv('TEAMS_WEBHOOK_URL'):
-            config['notifications']['teams'] = {'url': os.getenv('TEAMS_WEBHOOK_URL')}
-        if os.getenv('GOOGLE_CHAT_WEBHOOK_URL'):
-            config['notifications']['google_chat'] = {'url': os.getenv('GOOGLE_CHAT_WEBHOOK_URL')}
-        if os.getenv('TWILIO_ACCOUNT_SID') and os.getenv('TWILIO_AUTH_TOKEN') and os.getenv('TWILIO_FROM') and os.getenv('TWILIO_TO'):
-            config['notifications']['sms'] = {
-                'account_sid': os.getenv('TWILIO_ACCOUNT_SID'),
-                'auth_token': os.getenv('TWILIO_AUTH_TOKEN'),
-                'from': os.getenv('TWILIO_FROM'),
-                'to': os.getenv('TWILIO_TO')
+        # Notification configs - ensure it's always a dict
+        notifications = config.get('notifications')
+        if notifications is None or not isinstance(notifications, dict):
+            notifications = {}
+        
+        # Support both HTTP_PUSH_URL and NOTIFICATIONS_HTTP_PUSH_URL
+        http_push_url = os.getenv('HTTP_PUSH_URL') or os.getenv('NOTIFICATIONS_HTTP_PUSH_URL')
+        if http_push_url:
+            notifications['http_push'] = {'url': http_push_url}
+        
+        webhook_url = os.getenv('WEBHOOK_URL') or os.getenv('NOTIFICATIONS_WEBHOOK_URL')
+        if webhook_url:
+            notifications['webhook'] = {'url': webhook_url}
+        
+        teams_url = os.getenv('TEAMS_WEBHOOK_URL') or os.getenv('NOTIFICATIONS_TEAMS_WEBHOOK_URL')
+        if teams_url:
+            notifications['teams'] = {'url': teams_url}
+        
+        google_chat_url = os.getenv('GOOGLE_CHAT_WEBHOOK_URL') or os.getenv('NOTIFICATIONS_GOOGLE_CHAT_WEBHOOK_URL')
+        if google_chat_url:
+            notifications['google_chat'] = {'url': google_chat_url}
+        
+        twilio_sid = os.getenv('TWILIO_ACCOUNT_SID') or os.getenv('NOTIFICATIONS_TWILIO_ACCOUNT_SID')
+        twilio_token = os.getenv('TWILIO_AUTH_TOKEN') or os.getenv('NOTIFICATIONS_TWILIO_AUTH_TOKEN')
+        twilio_from = os.getenv('TWILIO_FROM') or os.getenv('NOTIFICATIONS_TWILIO_FROM')
+        twilio_to = os.getenv('TWILIO_TO') or os.getenv('NOTIFICATIONS_TWILIO_TO')
+        if twilio_sid and twilio_token and twilio_from and twilio_to:
+            notifications['sms'] = {
+                'account_sid': twilio_sid,
+                'auth_token': twilio_token,
+                'from': twilio_from,
+                'to': twilio_to
             }
+        
+        config['notifications'] = notifications
         
         return config
     
@@ -305,7 +323,8 @@ class CertificateChecker:
     
     def send_http_push(self, results):
         """Send results via HTTP push"""
-        http_config = self.config['notifications'].get('http_push')
+        notifications = self.config.get('notifications') or {}
+        http_config = notifications.get('http_push')
         if not http_config or not http_config.get('url'):
             return False
         
@@ -345,7 +364,8 @@ class CertificateChecker:
     
     def send_webhook(self, results):
         """Send results via webhook"""
-        webhook_config = self.config['notifications'].get('webhook')
+        notifications = self.config.get('notifications') or {}
+        webhook_config = notifications.get('webhook')
         if not webhook_config or not webhook_config.get('url'):
             return False
         
@@ -374,7 +394,8 @@ class CertificateChecker:
     
     def send_teams(self, results):
         """Send results to Microsoft Teams"""
-        teams_config = self.config['notifications'].get('teams')
+        notifications = self.config.get('notifications') or {}
+        teams_config = notifications.get('teams')
         if not teams_config or not teams_config.get('url'):
             return False
         
@@ -418,7 +439,8 @@ class CertificateChecker:
     
     def send_google_chat(self, results):
         """Send results to Google Chat"""
-        chat_config = self.config['notifications'].get('google_chat')
+        notifications = self.config.get('notifications') or {}
+        chat_config = notifications.get('google_chat')
         if not chat_config or not chat_config.get('url'):
             return False
         
@@ -449,7 +471,8 @@ class CertificateChecker:
     
     def send_sms(self, results):
         """Send results via SMS using Twilio"""
-        sms_config = self.config['notifications'].get('sms')
+        notifications = self.config.get('notifications') or {}
+        sms_config = notifications.get('sms')
         if not sms_config:
             return False
         
@@ -479,23 +502,26 @@ class CertificateChecker:
         """Send results to all configured notification destinations"""
         sent = []
         
-        if self.config['notifications'].get('http_push'):
+        # Ensure notifications is a dict
+        notifications = self.config.get('notifications') or {}
+        
+        if notifications.get('http_push'):
             if self.send_http_push(results):
                 sent.append('http_push')
         
-        if self.config['notifications'].get('webhook'):
+        if notifications.get('webhook'):
             if self.send_webhook(results):
                 sent.append('webhook')
         
-        if self.config['notifications'].get('teams'):
+        if notifications.get('teams'):
             if self.send_teams(results):
                 sent.append('teams')
         
-        if self.config['notifications'].get('google_chat'):
+        if notifications.get('google_chat'):
             if self.send_google_chat(results):
                 sent.append('google_chat')
         
-        if self.config['notifications'].get('sms'):
+        if notifications.get('sms'):
             if self.send_sms(results):
                 sent.append('sms')
         

@@ -14,9 +14,11 @@ crl_expiry_warning_minutes: ${CRL_EXPIRY_WARNING_MINUTES:-60}
 notifications:
 EOF
 
-    if [ -n "$HTTP_PUSH_URL" ]; then
+    # Support both HTTP_PUSH_URL and NOTIFICATIONS_HTTP_PUSH_URL
+    HTTP_PUSH_URL_VALUE="${HTTP_PUSH_URL:-${NOTIFICATIONS_HTTP_PUSH_URL}}"
+    if [ -n "$HTTP_PUSH_URL_VALUE" ]; then
         echo "  http_push:" >> /app/config.yaml
-        echo "    url: ${HTTP_PUSH_URL}" >> /app/config.yaml
+        echo "    url: ${HTTP_PUSH_URL_VALUE}" >> /app/config.yaml
     fi
 
     if [ -n "$WEBHOOK_URL" ]; then

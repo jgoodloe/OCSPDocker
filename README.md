@@ -71,15 +71,17 @@ docker build -t certificate-checker .
 | `CERT_EXPIRY_WARNING_DAYS` | Warn if cert expires within X days | 30 |
 | `CRL_EXPIRY_WARNING_HOURS` | Warn if CRL expires within X hours | 24 |
 | `CRL_EXPIRY_WARNING_MINUTES` | Warn if CRL expires within X minutes | 60 |
-| `HTTP_PUSH_URL` | HTTP push notification URL | - |
-| `WEBHOOK_URL` | Generic webhook URL | - |
-| `TEAMS_WEBHOOK_URL` | Microsoft Teams webhook URL | - |
-| `GOOGLE_CHAT_WEBHOOK_URL` | Google Chat webhook URL | - |
-| `TWILIO_ACCOUNT_SID` | Twilio account SID (for SMS) | - |
-| `TWILIO_AUTH_TOKEN` | Twilio auth token | - |
-| `TWILIO_FROM` | Twilio sender phone number | - |
-| `TWILIO_TO` | Recipient phone number | - |
+| `HTTP_PUSH_URL` or `NOTIFICATIONS_HTTP_PUSH_URL` | HTTP push notification URL | - |
+| `WEBHOOK_URL` or `NOTIFICATIONS_WEBHOOK_URL` | Generic webhook URL | - |
+| `TEAMS_WEBHOOK_URL` or `NOTIFICATIONS_TEAMS_WEBHOOK_URL` | Microsoft Teams webhook URL | - |
+| `GOOGLE_CHAT_WEBHOOK_URL` or `NOTIFICATIONS_GOOGLE_CHAT_WEBHOOK_URL` | Google Chat webhook URL | - |
+| `TWILIO_ACCOUNT_SID` or `NOTIFICATIONS_TWILIO_ACCOUNT_SID` | Twilio account SID (for SMS) | - |
+| `TWILIO_AUTH_TOKEN` or `NOTIFICATIONS_TWILIO_AUTH_TOKEN` | Twilio auth token | - |
+| `TWILIO_FROM` or `NOTIFICATIONS_TWILIO_FROM` | Twilio sender phone number | - |
+| `TWILIO_TO` or `NOTIFICATIONS_TWILIO_TO` | Recipient phone number | - |
 | `CONFIG_PATH` | Path to config.yaml file | /app/config.yaml |
+
+**Note:** Both naming conventions are supported (e.g., `HTTP_PUSH_URL` and `NOTIFICATIONS_HTTP_PUSH_URL`). Use whichever fits your naming convention.
 
 ### Schedule Intervals
 
