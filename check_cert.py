@@ -360,9 +360,22 @@ class CertificateChecker:
             return False
         
         try:
-            # Determine status
-            status = results.get('status', 'unknown')
-            msg = 'OK' if status == 'ok' else 'WARNING' if status == 'warning' else 'ERROR'
+            # Determine status - map to up/down
+            result_status = results.get('status', 'unknown')
+            if result_status == 'ok':
+                status = 'up'
+                msg = 'OK'
+            elif result_status == 'warning':
+                status = 'up'  # Still up, but with warning message
+                # Format: WARNING - [warning details]
+                if self.warnings:
+                    msg = 'WARNING - ' + '; '.join(self.warnings)
+                else:
+                    msg = 'WARNING'
+            else:  # error
+                status = 'down'
+                msg = 'ERROR'
+            
             ocsp_status = 'OK'  # Simplified - would need actual OCSP check
             
             # Build URL with parameters
@@ -374,9 +387,6 @@ class CertificateChecker:
                 'msg': msg,
                 'OCSP': ocsp_status
             }
-            
-            if self.warnings:
-                params['warnings'] = '; '.join(self.warnings)
             
             print(f"DEBUG: Parameters to add: {params}", file=sys.stderr)
             
