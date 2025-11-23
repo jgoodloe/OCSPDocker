@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  ocsp:
+    build: ./ocsp
+    ports:
+      - "8678:8678"
+    container_name: ocsp-service
+    
+    # Option 1: Use environment variables (simpler, but no per-CRL notifications)
+    environment:
+      - CRL_ONLY=true
+      - CRL_URLS=http://crl.xca.xpki.com/CRLs/XTec_PIVI_CA1.crl,http://crl.xcatest2.xpki.com/CRLs/XTec_PIVI_Test2_CA_1.crl
+      - SCHEDULE_INTERVAL=300
+      - CRL_EXPIRY_WARNING_HOURS=3
+      - NOTIFICATIONS_HTTP_PUSH_URL=http://192.168.2.184:3001/api/push/ynOyE22dMh?status=up&msg=OK&OCSP=OK
+    
+    # Option 2: Use config file (required for per-CRL notifications)
+    # volumes:
+    #   - ./ocsp/config.yaml:/app/config.yaml:ro
+    # environment:
+    #   - SCHEDULE_INTERVAL=300
+    #   - CRL_EXPIRY_WARNING_HOURS=3
+

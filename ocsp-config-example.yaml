@@ -1,0 +1,36 @@
+# CRL Checker Configuration
+# Place this file in ./ocsp/config.yaml and mount it in docker-compose.yml
+
+# CRL-only mode: Skip certificate checking
+crl_only: true
+
+# Direct CRL URLs to check
+crls:
+  - http://crl.xca.xpki.com/CRLs/XTec_PIVI_CA1.crl
+  - http://crl.xcatest2.xpki.com/CRLs/XTec_PIVI_Test2_CA_1.crl
+
+# Schedule interval in seconds
+schedule_interval: 300
+
+# CRL expiration warning thresholds
+crl_expiry_warning_hours: 3
+crl_expiry_warning_minutes: 60
+
+# General notification endpoint (for all CRLs)
+notifications:
+  http_push:
+    url: http://192.168.2.184:3001/api/push/ynOyE22dMh?status=up&msg=OK&OCSP=OK
+
+# Per-CRL notification endpoints (optional)
+# Each CRL can send to a different endpoint
+crl_notifications:
+  "http://crl.xca.xpki.com/CRLs/XTec_PIVI_CA1.crl":
+    http_push_url: http://192.168.2.184:3001/api/push/ynOyE22dMh?status=up&msg=OK
+  
+  "http://crl.xcatest2.xpki.com/CRLs/XTec_PIVI_Test2_CA_1.crl":
+    http_push_url: http://192.168.2.184:3001/api/push/ynOyE22dMh?status=up&msg=OK
+
+  # Pattern matching example (if CRL URL contains this string)
+  # "crl.xca.xpki.com":
+  #   http_push_url: http://192.168.2.184:3001/api/push/different-key?status=up&msg=OK
+

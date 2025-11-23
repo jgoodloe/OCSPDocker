@@ -2,17 +2,44 @@
 set -e
 
 # If certificate path is provided via environment variable, create config
-if [ -n "$CERTIFICATE_PATH" ] && [ ! -f /app/config.yaml ]; then
+# Also create config if CRL_ONLY is set or CRL_URLS is provided
+if ([ -n "$CERTIFICATE_PATH" ] || [ -n "$CRL_ONLY" ] || [ -n "$CRL_URLS" ]) && [ ! -f /app/config.yaml ]; then
     echo "Creating config.yaml from environment variables..."
+    
+    # Start config file
     cat > /app/config.yaml <<EOF
-certificate: ${CERTIFICATE_PATH}
 schedule_interval: ${SCHEDULE_INTERVAL:-60}
 cert_expiry_warning_hours: ${CERT_EXPIRY_WARNING_HOURS:-24}
 cert_expiry_warning_days: ${CERT_EXPIRY_WARNING_DAYS:-30}
 crl_expiry_warning_hours: ${CRL_EXPIRY_WARNING_HOURS:-24}
 crl_expiry_warning_minutes: ${CRL_EXPIRY_WARNING_MINUTES:-60}
-notifications:
 EOF
+
+    # Add certificate if provided
+    if [ -n "$CERTIFICATE_PATH" ]; then
+        echo "certificate: ${CERTIFICATE_PATH}" >> /app/config.yaml
+    fi
+    
+    # Add CRL-only mode if set
+    if [ -n "$CRL_ONLY" ]; then
+        echo "crl_only: ${CRL_ONLY}" >> /app/config.yaml
+    fi
+    
+    # Add CRL URLs if provided
+    if [ -n "$CRL_URLS" ]; then
+        echo "crls:" >> /app/config.yaml
+        # Split comma-separated URLs
+        IFS=',' read -ra URLS <<< "$CRL_URLS"
+        for url in "${URLS[@]}"; do
+            url=$(echo "$url" | xargs)  # Trim whitespace
+            if [ -n "$url" ]; then
+                echo "  - $url" >> /app/config.yaml
+            fi
+        done
+    fi
+    
+    # Add notifications section
+    echo "notifications:" >> /app/config.yaml
 
     # Support both HTTP_PUSH_URL and NOTIFICATIONS_HTTP_PUSH_URL
     HTTP_PUSH_URL_VALUE="${HTTP_PUSH_URL:-${NOTIFICATIONS_HTTP_PUSH_URL}}"
@@ -45,9 +72,9 @@ EOF
     fi
 fi
 
-# Check if certificate path is set
-if [ -z "$CERTIFICATE_PATH" ] && [ ! -f /app/config.yaml ]; then
-    echo "Error: CERTIFICATE_PATH environment variable or config.yaml file is required"
+# Check if certificate path or CRL-only mode is set
+if [ -z "$CERTIFICATE_PATH" ] && [ -z "$CRL_ONLY" ] && [ -z "$CRL_URLS" ] && [ ! -f /app/config.yaml ]; then
+    echo "Error: CERTIFICATE_PATH, CRL_ONLY, CRL_URLS environment variable, or config.yaml file is required"
     exit 1
 fi
 
