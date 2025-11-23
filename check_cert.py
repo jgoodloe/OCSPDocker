@@ -356,6 +356,7 @@ class CertificateChecker:
         notifications = self.config.get('notifications') or {}
         http_config = notifications.get('http_push')
         if not http_config or not http_config.get('url'):
+            print("DEBUG: HTTP push not configured or URL missing", file=sys.stderr)
             return False
         
         try:
@@ -366,6 +367,8 @@ class CertificateChecker:
             
             # Build URL with parameters
             url = http_config['url']
+            print(f"DEBUG: Original URL: {url}", file=sys.stderr)
+            
             params = {
                 'status': status,
                 'msg': msg,
@@ -375,9 +378,13 @@ class CertificateChecker:
             if self.warnings:
                 params['warnings'] = '; '.join(self.warnings)
             
+            print(f"DEBUG: Parameters to add: {params}", file=sys.stderr)
+            
             # Parse URL and add params
             parsed = urllib.parse.urlparse(url)
             query = urllib.parse.parse_qs(parsed.query)
+            print(f"DEBUG: Existing query params: {query}", file=sys.stderr)
+            
             query.update(params)
             new_query = urllib.parse.urlencode(query, doseq=True)
             final_url = urllib.parse.urlunparse((
@@ -385,12 +392,38 @@ class CertificateChecker:
                 parsed.params, new_query, parsed.fragment
             ))
             
+            print(f"DEBUG: Final URL: {final_url}", file=sys.stderr)
+            print(f"DEBUG: Using HTTP method: PUT", file=sys.stderr)
+            
             # Use PUT method as required by Uptime Kuma
             response = requests.put(final_url, timeout=10)
+            print(f"DEBUG: Response status code: {response.status_code}", file=sys.stderr)
+            print(f"DEBUG: Response headers: {dict(response.headers)}", file=sys.stderr)
+            print(f"DEBUG: Response body: {response.text[:500]}", file=sys.stderr)  # First 500 chars
+            
             response.raise_for_status()
+            print("DEBUG: HTTP push succeeded", file=sys.stderr)
             return True
+        except requests.exceptions.HTTPError as e:
+            print(f"HTTP push failed: HTTP {e.response.status_code} - {e}", file=sys.stderr)
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"DEBUG: Response URL: {e.response.url}", file=sys.stderr)
+                print(f"DEBUG: Response status: {e.response.status_code}", file=sys.stderr)
+                print(f"DEBUG: Response headers: {dict(e.response.headers)}", file=sys.stderr)
+                print(f"DEBUG: Response body: {e.response.text[:500]}", file=sys.stderr)
+            return False
+        except requests.exceptions.RequestException as e:
+            print(f"HTTP push failed: Request error - {e}", file=sys.stderr)
+            print(f"DEBUG: Error type: {type(e).__name__}", file=sys.stderr)
+            if hasattr(e, 'request') and e.request is not None:
+                print(f"DEBUG: Request URL: {e.request.url if hasattr(e.request, 'url') else 'N/A'}", file=sys.stderr)
+                print(f"DEBUG: Request method: {e.request.method if hasattr(e.request, 'method') else 'N/A'}", file=sys.stderr)
+            return False
         except Exception as e:
-            print(f"HTTP push failed: {e}", file=sys.stderr)
+            print(f"HTTP push failed: Unexpected error - {e}", file=sys.stderr)
+            print(f"DEBUG: Error type: {type(e).__name__}", file=sys.stderr)
+            import traceback
+            print(f"DEBUG: Traceback: {traceback.format_exc()}", file=sys.stderr)
             return False
     
     def send_webhook(self, results):
