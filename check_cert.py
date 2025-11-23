@@ -100,8 +100,23 @@ class CertificateChecker:
         
         config['notifications'] = notifications
         
-        # Load CRL-specific notifications
-        config['crl_notifications'] = config.get('crl_notifications', {})
+        # Load CRL-specific notifications - ensure it's a dict
+        crl_notifications = config.get('crl_notifications', {})
+        if crl_notifications is None:
+            crl_notifications = {}
+        elif isinstance(crl_notifications, str):
+            # Try to parse as YAML/JSON if it's a string
+            try:
+                import json
+                crl_notifications = json.loads(crl_notifications)
+            except:
+                try:
+                    crl_notifications = yaml.safe_load(crl_notifications) or {}
+                except:
+                    crl_notifications = {}
+        elif not isinstance(crl_notifications, dict):
+            crl_notifications = {}
+        config['crl_notifications'] = crl_notifications
         
         return config
     
@@ -816,6 +831,10 @@ class CertificateChecker:
         """Send notification for a specific CRL using its configured endpoint"""
         crl_url = crl_result.get('url', '')
         crl_notifications = self.config.get('crl_notifications', {})
+        
+        # Ensure crl_notifications is a dict
+        if crl_notifications is None or not isinstance(crl_notifications, dict):
+            return False
         
         # Check if this CRL has a specific notification endpoint
         crl_notification = None
