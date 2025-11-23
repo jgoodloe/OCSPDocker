@@ -27,6 +27,11 @@ class CertificateChecker:
     def __init__(self, config_path='config.yaml'):
         """Initialize the certificate checker with configuration"""
         self.config = self.load_config(config_path)
+        # Final safety check - ensure notifications is always a dict
+        if 'notifications' not in self.config or self.config['notifications'] is None:
+            self.config['notifications'] = {}
+        elif not isinstance(self.config['notifications'], dict):
+            self.config['notifications'] = {}
         self.warnings = []
         
     def load_config(self, config_path):
@@ -36,7 +41,11 @@ class CertificateChecker:
         # Try to load from file
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
-                config = yaml.safe_load(f) or {}
+                loaded_config = yaml.safe_load(f)
+                config = loaded_config if loaded_config is not None else {}
+                # Ensure notifications is never None
+                if config.get('notifications') is None:
+                    config['notifications'] = {}
         
         # Override with environment variables
         config['certificate'] = os.getenv('CERTIFICATE_PATH', config.get('certificate'))
