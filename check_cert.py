@@ -364,12 +364,21 @@ class CertificateChecker:
         if crl_only:
             print("INFO: CRL-only mode enabled - skipping certificate checks", file=sys.stderr)
             results['warnings'] = self.warnings
-            if self.warnings:
+            
+            # Check if any CRLs failed to download - that's an error
+            crl_errors = [crl for crl in results['crls'] if crl.get('error')]
+            if crl_errors:
+                results['status'] = 'error'
+                print(f"ERROR: {len(crl_errors)} CRL(s) failed to download", file=sys.stderr)
+            elif self.warnings:
                 results['status'] = 'warning'
+            
             print("\n" + "=" * 60, file=sys.stderr)
             print(f"CRL ANALYSIS COMPLETE - Status: {results['status']}", file=sys.stderr)
             print(f"Total CRLs checked: {len(results['crls'])}", file=sys.stderr)
             print(f"Total warnings: {len(self.warnings)}", file=sys.stderr)
+            if crl_errors:
+                print(f"Total CRL errors: {len(crl_errors)}", file=sys.stderr)
             print("=" * 60, file=sys.stderr)
             return results
         
@@ -505,7 +514,13 @@ class CertificateChecker:
                 print("INFO: No certificate chain file specified", file=sys.stderr)
         
         results['warnings'] = self.warnings
-        if self.warnings:
+        
+        # Check if any CRLs failed to download - that's an error
+        crl_errors = [crl for crl in results['crls'] if crl.get('error')]
+        if crl_errors:
+            results['status'] = 'error'
+            print(f"ERROR: {len(crl_errors)} CRL(s) failed to download", file=sys.stderr)
+        elif self.warnings:
             results['status'] = 'warning'
         
         print("\n" + "=" * 60, file=sys.stderr)
@@ -513,6 +528,8 @@ class CertificateChecker:
         print(f"Total certificates checked: {len(results['certificates'])}", file=sys.stderr)
         print(f"Total CRLs checked: {len(results['crls'])}", file=sys.stderr)
         print(f"Total warnings: {len(self.warnings)}", file=sys.stderr)
+        if crl_errors:
+            print(f"Total CRL errors: {len(crl_errors)}", file=sys.stderr)
         print("=" * 60, file=sys.stderr)
         
         return results
@@ -857,9 +874,17 @@ class CertificateChecker:
             return False
         
         # Create a results object for this CRL only
+        # If CRL has an error, status should be 'error' (which maps to 'down')
+        if crl_result.get('error'):
+            crl_status = 'error'
+        elif crl_result.get('warning'):
+            crl_status = 'warning'
+        else:
+            crl_status = 'ok'
+        
         crl_results = {
             'timestamp': datetime.utcnow().isoformat(),
-            'status': 'warning' if crl_result.get('warning') else 'ok',
+            'status': crl_status,
             'crls': [crl_result],
             'warnings': [crl_result['warning']] if crl_result.get('warning') else []
         }
