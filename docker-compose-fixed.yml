@@ -1,0 +1,28 @@
+  # -------------------------
+  # 10. CRL Checker
+  # -------------------------
+  ocsp:
+    # Instructs Docker Compose to build the image from the local Dockerfile
+    # found in the current directory (.).
+    build: ./ocsp
+
+    ports:
+      - "8678:8678"
+    container_name: ocsp-service
+
+    environment:
+      # Configuration for the certificate checker
+      - CERTIFICATE_PATH=/app/piv.xcloud.authentx.com.prm.crt
+      - SCHEDULE_INTERVAL=300
+      - CERT_EXPIRY_WARNING_DAYS=30
+      - CRL_EXPIRY_WARNING_HOURS=3
+
+      - CRL_ONLY=true
+      - CRL_URLS=http://crl.xca.xpki.com/CRLs/XTec_PIVI_CA1.crl,http://crl.xcatest2.xpki.com/CRLs/XTec_PIVI_Test2_CA_1.crl
+
+      # Uptime Kuma HTTP Push Notification
+      - NOTIFICATIONS_HTTP_PUSH_URL=http://192.168.2.184:3001/api/push/ynOyE22dMh?status=up&msg=OK&OCSP=OK
+
+      # CRL-specific notifications (JSON format - single line)
+      - CRL_NOTIFICATIONS={"http://crl.xca.xpki.com/CRLs/XTec_PIVI_CA1.crl":{"http_push_url":"http://192.168.2.184:3001/api/push/ynOyE22dMh?status=up&msg=OK"},"http://crl.xcatest2.xpki.com/CRLs/XTec_PIVI_Test2_CA_1.crl":{"http_push_url":"http://192.168.2.184:3001/api/push/9TwqAsFUR0?status=up&msg=OK"}}
+
