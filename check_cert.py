@@ -120,7 +120,12 @@ class CertificateChecker:
     def check_certificate_expiry(self, cert, cert_name="Certificate"):
         """Check if certificate is expiring soon"""
         now = datetime.utcnow()
-        not_after = cert.not_valid_after.replace(tzinfo=None)
+        # Use UTC version to avoid deprecation warning
+        try:
+            not_after = cert.not_valid_after_utc.replace(tzinfo=None)
+        except AttributeError:
+            # Fallback for older cryptography versions
+            not_after = cert.not_valid_after.replace(tzinfo=None)
         time_until_expiry = not_after - now
         
         hours_until_expiry = time_until_expiry.total_seconds() / 3600
@@ -195,7 +200,12 @@ class CertificateChecker:
                     return result
             
             # Get next update time
-            next_update = crl.next_update.replace(tzinfo=None)
+            # Use UTC version to avoid deprecation warning
+            try:
+                next_update = crl.next_update_utc.replace(tzinfo=None)
+            except AttributeError:
+                # Fallback for older cryptography versions
+                next_update = crl.next_update.replace(tzinfo=None)
             now = datetime.utcnow()
             time_until_expiry = next_update - now
             
@@ -263,12 +273,21 @@ class CertificateChecker:
             return results
         
         # Check main certificate
+        # Use UTC versions to avoid deprecation warnings
+        try:
+            valid_from = cert.not_valid_before_utc.isoformat()
+            valid_to = cert.not_valid_after_utc.isoformat()
+        except AttributeError:
+            # Fallback for older cryptography versions
+            valid_from = cert.not_valid_before.isoformat()
+            valid_to = cert.not_valid_after.isoformat()
+        
         cert_info = {
             'subject': cert.subject.rfc4514_string(),
             'issuer': cert.issuer.rfc4514_string(),
             'serial_number': str(cert.serial_number),
-            'valid_from': cert.not_valid_before.isoformat(),
-            'valid_to': cert.not_valid_after.isoformat(),
+            'valid_from': valid_from,
+            'valid_to': valid_to,
         }
         
         expiry_info = self.check_certificate_expiry(cert, "Main Certificate")
@@ -366,7 +385,8 @@ class CertificateChecker:
                 parsed.params, new_query, parsed.fragment
             ))
             
-            response = requests.get(final_url, timeout=10)
+            # Use PUT method as required by Uptime Kuma
+            response = requests.put(final_url, timeout=10)
             response.raise_for_status()
             return True
         except Exception as e:
