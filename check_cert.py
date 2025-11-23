@@ -393,10 +393,16 @@ class CertificateChecker:
             ))
             
             print(f"DEBUG: Final URL: {final_url}", file=sys.stderr)
-            print(f"DEBUG: Using HTTP method: PUT", file=sys.stderr)
             
-            # Use PUT method as required by Uptime Kuma
-            response = requests.put(final_url, timeout=10)
+            # Uptime Kuma push endpoint accepts GET requests
+            # Try GET first, fallback to PUT if configured
+            http_method = http_config.get('method', 'GET').upper()
+            print(f"DEBUG: Using HTTP method: {http_method}", file=sys.stderr)
+            
+            if http_method == 'PUT':
+                response = requests.put(final_url, timeout=10)
+            else:
+                response = requests.get(final_url, timeout=10)
             print(f"DEBUG: Response status code: {response.status_code}", file=sys.stderr)
             print(f"DEBUG: Response headers: {dict(response.headers)}", file=sys.stderr)
             print(f"DEBUG: Response body: {response.text[:500]}", file=sys.stderr)  # First 500 chars
