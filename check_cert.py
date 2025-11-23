@@ -120,24 +120,37 @@ class CertificateChecker:
     def check_certificate_expiry(self, cert, cert_name="Certificate"):
         """Check if certificate is expiring soon"""
         now = datetime.utcnow()
+        print(f"TEST: Current time (UTC): {now.isoformat()}", file=sys.stderr)
+        
         # Use UTC version to avoid deprecation warning
         try:
             not_after = cert.not_valid_after_utc.replace(tzinfo=None)
         except AttributeError:
             # Fallback for older cryptography versions
             not_after = cert.not_valid_after.replace(tzinfo=None)
+        
+        print(f"TEST: Certificate expires at: {not_after.isoformat()}", file=sys.stderr)
         time_until_expiry = not_after - now
+        print(f"TEST: Time until expiry: {time_until_expiry}", file=sys.stderr)
         
         hours_until_expiry = time_until_expiry.total_seconds() / 3600
         days_until_expiry = time_until_expiry.days
         
+        print(f"TEST: Hours until expiry: {hours_until_expiry:.2f}", file=sys.stderr)
+        print(f"TEST: Days until expiry: {days_until_expiry}", file=sys.stderr)
+        
         warning = None
         if time_until_expiry.total_seconds() <= 0:
+            print(f"WARNING: {cert_name} has EXPIRED!", file=sys.stderr)
             warning = f"{cert_name} has EXPIRED"
         elif hours_until_expiry <= self.config['cert_expiry_warning_hours']:
+            print(f"WARNING: {cert_name} expires within {self.config['cert_expiry_warning_hours']} hours threshold", file=sys.stderr)
             warning = f"{cert_name} expires in {hours_until_expiry:.1f} hours ({time_until_expiry})"
         elif days_until_expiry <= self.config['cert_expiry_warning_days']:
+            print(f"WARNING: {cert_name} expires within {self.config['cert_expiry_warning_days']} days threshold", file=sys.stderr)
             warning = f"{cert_name} expires in {days_until_expiry} days ({time_until_expiry})"
+        else:
+            print(f"OK: {cert_name} is valid and not expiring soon", file=sys.stderr)
         
         if warning:
             self.warnings.append(warning)
@@ -152,26 +165,31 @@ class CertificateChecker:
     
     def get_crl_info(self, cert):
         """Extract CRL distribution points from certificate"""
+        print(f"TEST: Extracting CRL distribution points from certificate...", file=sys.stderr)
         crl_info = []
         try:
             crl_dps = cert.extensions.get_extension_for_oid(
                 x509.oid.ExtensionOID.CRL_DISTRIBUTION_POINTS
             ).value
+            print(f"TEST: Found CRL Distribution Points extension", file=sys.stderr)
             
             for dp in crl_dps:
                 for name in dp.full_name:
                     if isinstance(name, x509.UniformResourceIdentifier):
+                        crl_url = name.value
+                        print(f"CHECK: Found CRL URL: {crl_url}", file=sys.stderr)
                         crl_info.append({
-                            'url': name.value,
+                            'url': crl_url,
                             'certificate': cert.subject.rfc4514_string()
                         })
         except x509.ExtensionNotFound:
-            pass
+            print(f"INFO: No CRL Distribution Points extension found in certificate", file=sys.stderr)
         
         return crl_info
     
     def check_crl_expiry(self, crl_url):
         """Download and check CRL expiration"""
+        print(f"TEST: Starting CRL check for: {crl_url}", file=sys.stderr)
         result = {
             'url': crl_url,
             'error': None,
@@ -184,76 +202,109 @@ class CertificateChecker:
         
         try:
             # Download CRL
+            print(f"TEST: Downloading CRL from {crl_url}...", file=sys.stderr)
             response = requests.get(crl_url, timeout=10, verify=False)
+            print(f"TEST: HTTP response status: {response.status_code}", file=sys.stderr)
             response.raise_for_status()
             crl_data = response.content
+            print(f"TEST: CRL downloaded successfully, size: {len(crl_data)} bytes", file=sys.stderr)
             
             # Try to parse as DER first
+            print(f"TEST: Attempting to parse CRL as DER format...", file=sys.stderr)
             try:
                 crl = x509.load_der_x509_crl(crl_data, default_backend())
+                print(f"TEST: CRL parsed successfully as DER format", file=sys.stderr)
             except:
                 # Try PEM format
+                print(f"TEST: DER parsing failed, trying PEM format...", file=sys.stderr)
                 try:
                     crl = x509.load_pem_x509_crl(crl_data, default_backend())
+                    print(f"TEST: CRL parsed successfully as PEM format", file=sys.stderr)
                 except Exception as e:
+                    print(f"ERROR: Failed to parse CRL in both DER and PEM formats: {str(e)}", file=sys.stderr)
                     result['error'] = f"Failed to parse CRL: {str(e)}"
                     return result
             
             # Get next update time
+            print(f"TEST: Extracting CRL next update time...", file=sys.stderr)
             # Use UTC version to avoid deprecation warning
             try:
                 next_update = crl.next_update_utc.replace(tzinfo=None)
             except AttributeError:
                 # Fallback for older cryptography versions
                 next_update = crl.next_update.replace(tzinfo=None)
+            
+            print(f"TEST: CRL next update time: {next_update.isoformat()}", file=sys.stderr)
             now = datetime.utcnow()
+            print(f"TEST: Current time (UTC): {now.isoformat()}", file=sys.stderr)
             time_until_expiry = next_update - now
+            print(f"TEST: Time until CRL expiry: {time_until_expiry}", file=sys.stderr)
             
             result['next_update'] = next_update.isoformat()
             result['time_until_expiry'] = str(time_until_expiry)
             result['hours_until_expiry'] = time_until_expiry.total_seconds() / 3600
             result['minutes_until_expiry'] = time_until_expiry.total_seconds() / 60
             
+            print(f"TEST: Hours until CRL expiry: {result['hours_until_expiry']:.2f}", file=sys.stderr)
+            print(f"TEST: Minutes until CRL expiry: {result['minutes_until_expiry']:.2f}", file=sys.stderr)
+            print(f"TEST: Warning thresholds - Hours: {self.config['crl_expiry_warning_hours']}, Minutes: {self.config['crl_expiry_warning_minutes']}", file=sys.stderr)
+            
             # Check for warnings
             hours_until = result['hours_until_expiry']
             minutes_until = result['minutes_until_expiry']
             
             if time_until_expiry.total_seconds() <= 0:
+                print(f"WARNING: CRL has EXPIRED!", file=sys.stderr)
                 warning = f"CRL at {crl_url} has EXPIRED"
                 result['warning'] = warning
                 self.warnings.append(warning)
             elif minutes_until <= self.config['crl_expiry_warning_minutes']:
                 # Check minutes threshold first (more granular)
+                print(f"WARNING: CRL expires within {self.config['crl_expiry_warning_minutes']} minutes threshold", file=sys.stderr)
                 warning = f"CRL at {crl_url} expires in {minutes_until:.1f} minutes ({time_until_expiry})"
                 result['warning'] = warning
                 self.warnings.append(warning)
             elif hours_until <= self.config['crl_expiry_warning_hours']:
                 # Then check hours threshold
+                print(f"WARNING: CRL expires within {self.config['crl_expiry_warning_hours']} hours threshold", file=sys.stderr)
                 warning = f"CRL at {crl_url} expires in {hours_until:.1f} hours ({time_until_expiry})"
                 result['warning'] = warning
                 self.warnings.append(warning)
+            else:
+                print(f"OK: CRL is valid and not expiring soon", file=sys.stderr)
             
         except requests.exceptions.RequestException as e:
+            print(f"ERROR: Failed to download CRL: {str(e)}", file=sys.stderr)
             result['error'] = f"Failed to download CRL: {str(e)}"
         except Exception as e:
+            print(f"ERROR: Error checking CRL: {str(e)}", file=sys.stderr)
             result['error'] = f"Error checking CRL: {str(e)}"
         
         return result
     
     def analyze_certificate(self):
         """Analyze the certificate and return results"""
+        print("=" * 60, file=sys.stderr)
+        print("CERTIFICATE ANALYSIS STARTED", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        
         cert_path = self.config.get('certificate')
         if not cert_path:
+            print("ERROR: Certificate path not specified", file=sys.stderr)
             return {
                 'error': 'Certificate path not specified',
                 'status': 'error'
             }
         
         if not os.path.exists(cert_path):
+            print(f"ERROR: Certificate file not found: {cert_path}", file=sys.stderr)
             return {
                 'error': f'Certificate file not found: {cert_path}',
                 'status': 'error'
             }
+        
+        print(f"CHECK: Certificate file exists: {cert_path}", file=sys.stderr)
+        print(f"CHECK: File size: {os.path.getsize(cert_path)} bytes", file=sys.stderr)
         
         self.warnings = []
         results = {
@@ -266,13 +317,25 @@ class CertificateChecker:
         }
         
         # Load main certificate
+        print(f"TEST: Loading certificate from {cert_path}...", file=sys.stderr)
         cert, error = self.load_certificate(cert_path)
         if error:
+            print(f"ERROR: Failed to load certificate: {error}", file=sys.stderr)
             results['error'] = error
             results['status'] = 'error'
             return results
         
+        print("TEST: Certificate loaded successfully", file=sys.stderr)
+        
         # Check main certificate
+        print("\n--- MAIN CERTIFICATE CHECK ---", file=sys.stderr)
+        subject = cert.subject.rfc4514_string()
+        issuer = cert.issuer.rfc4514_string()
+        serial = str(cert.serial_number)
+        print(f"CHECK: Subject: {subject}", file=sys.stderr)
+        print(f"CHECK: Issuer: {issuer}", file=sys.stderr)
+        print(f"CHECK: Serial Number: {serial}", file=sys.stderr)
+        
         # Use UTC versions to avoid deprecation warnings
         try:
             valid_from = cert.not_valid_before_utc.isoformat()
@@ -282,48 +345,93 @@ class CertificateChecker:
             valid_from = cert.not_valid_before.isoformat()
             valid_to = cert.not_valid_after.isoformat()
         
+        print(f"CHECK: Valid From: {valid_from}", file=sys.stderr)
+        print(f"CHECK: Valid To: {valid_to}", file=sys.stderr)
+        
         cert_info = {
-            'subject': cert.subject.rfc4514_string(),
-            'issuer': cert.issuer.rfc4514_string(),
-            'serial_number': str(cert.serial_number),
+            'subject': subject,
+            'issuer': issuer,
+            'serial_number': serial,
             'valid_from': valid_from,
             'valid_to': valid_to,
         }
         
+        print(f"TEST: Checking certificate expiration...", file=sys.stderr)
+        print(f"TEST: Warning thresholds - Hours: {self.config['cert_expiry_warning_hours']}, Days: {self.config['cert_expiry_warning_days']}", file=sys.stderr)
         expiry_info = self.check_certificate_expiry(cert, "Main Certificate")
         cert_info.update(expiry_info)
         results['certificates'].append(cert_info)
         
         # Get CRL information
+        print(f"\n--- CRL DISTRIBUTION POINTS CHECK ---", file=sys.stderr)
         crl_info = self.get_crl_info(cert)
-        for crl in crl_info:
-            crl_check = self.check_crl_expiry(crl['url'])
-            results['crls'].append(crl_check)
+        if crl_info:
+            print(f"CHECK: Found {len(crl_info)} CRL distribution point(s)", file=sys.stderr)
+            for idx, crl in enumerate(crl_info, 1):
+                print(f"CHECK: CRL #{idx}: {crl['url']}", file=sys.stderr)
+                print(f"TEST: Downloading and checking CRL expiration...", file=sys.stderr)
+                crl_check = self.check_crl_expiry(crl['url'])
+                results['crls'].append(crl_check)
+        else:
+            print("CHECK: No CRL distribution points found in certificate", file=sys.stderr)
         
         # Check for chain certificates if provided
         chain_path = self.config.get('certificate_chain')
         if chain_path and os.path.exists(chain_path):
+            print(f"\n--- CERTIFICATE CHAIN CHECK ---", file=sys.stderr)
+            print(f"CHECK: Chain file exists: {chain_path}", file=sys.stderr)
+            print(f"TEST: Loading certificate chain...", file=sys.stderr)
             chain_certs, chain_error = self.load_certificate_chain(chain_path)
             if not chain_error:
+                print(f"CHECK: Loaded {len(chain_certs)} certificate(s) from chain", file=sys.stderr)
                 for idx, chain_cert in enumerate(chain_certs):
+                    print(f"\n--- CHAIN CERTIFICATE {idx + 1} CHECK ---", file=sys.stderr)
+                    chain_subject = chain_cert.subject.rfc4514_string()
+                    chain_issuer = chain_cert.issuer.rfc4514_string()
+                    chain_serial = str(chain_cert.serial_number)
+                    print(f"CHECK: Subject: {chain_subject}", file=sys.stderr)
+                    print(f"CHECK: Issuer: {chain_issuer}", file=sys.stderr)
+                    print(f"CHECK: Serial Number: {chain_serial}", file=sys.stderr)
+                    print(f"TEST: Checking chain certificate expiration...", file=sys.stderr)
+                    
                     chain_info = {
-                        'subject': chain_cert.subject.rfc4514_string(),
-                        'issuer': chain_cert.issuer.rfc4514_string(),
-                        'serial_number': str(chain_cert.serial_number),
+                        'subject': chain_subject,
+                        'issuer': chain_issuer,
+                        'serial_number': chain_serial,
                     }
                     expiry_info = self.check_certificate_expiry(chain_cert, f"Chain Certificate {idx + 1}")
                     chain_info.update(expiry_info)
                     results['certificates'].append(chain_info)
                     
                     # Check CRLs for chain certificates too
+                    print(f"TEST: Checking CRL distribution points for chain certificate...", file=sys.stderr)
                     chain_crl_info = self.get_crl_info(chain_cert)
-                    for crl in chain_crl_info:
-                        crl_check = self.check_crl_expiry(crl['url'])
-                        results['crls'].append(crl_check)
+                    if chain_crl_info:
+                        print(f"CHECK: Found {len(chain_crl_info)} CRL distribution point(s) in chain certificate", file=sys.stderr)
+                        for crl in chain_crl_info:
+                            print(f"TEST: Downloading and checking CRL: {crl['url']}", file=sys.stderr)
+                            crl_check = self.check_crl_expiry(crl['url'])
+                            results['crls'].append(crl_check)
+                    else:
+                        print("CHECK: No CRL distribution points found in chain certificate", file=sys.stderr)
+            else:
+                print(f"ERROR: Failed to load certificate chain: {chain_error}", file=sys.stderr)
+        else:
+            if chain_path:
+                print(f"INFO: Certificate chain path specified but file not found: {chain_path}", file=sys.stderr)
+            else:
+                print("INFO: No certificate chain file specified", file=sys.stderr)
         
         results['warnings'] = self.warnings
         if self.warnings:
             results['status'] = 'warning'
+        
+        print("\n" + "=" * 60, file=sys.stderr)
+        print(f"CERTIFICATE ANALYSIS COMPLETE - Status: {results['status']}", file=sys.stderr)
+        print(f"Total certificates checked: {len(results['certificates'])}", file=sys.stderr)
+        print(f"Total CRLs checked: {len(results['crls'])}", file=sys.stderr)
+        print(f"Total warnings: {len(self.warnings)}", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
         
         return results
     
