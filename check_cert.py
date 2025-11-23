@@ -593,7 +593,10 @@ class CertificateChecker:
 
 def main():
     """Main entry point"""
-    print("Certificate Checker Service v1.1.0 (Fixed notifications NoneType error)", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
+    print("Certificate Checker Service v1.1.0", file=sys.stderr)
+    print("Fixed: notifications NoneType error", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
     config_path = os.getenv('CONFIG_PATH', 'config.yaml')
     checker = CertificateChecker(config_path)
     checker.start_scheduler()
