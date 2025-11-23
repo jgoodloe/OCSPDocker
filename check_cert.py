@@ -576,10 +576,15 @@ class CertificateChecker:
             # Add CRL information to message if available
             crls = results.get('crls', [])
             for crl in crls:
-                if crl.get('error'):
-                    continue  # Skip CRLs with errors
-                
                 crl_url = crl.get('url', 'Unknown')
+                
+                # If CRL has an error, include error info
+                if crl.get('error'):
+                    crl_info = f"CRL: url={crl_url}; error={crl.get('error', 'Unknown error')}"
+                    msg_parts.append(crl_info)
+                    continue
+                
+                # Include CRL details if available
                 next_update = crl.get('next_update')
                 crl_age = crl.get('crl_age')
                 time_until_expiry = crl.get('time_until_expiry')
@@ -587,6 +592,10 @@ class CertificateChecker:
                 if next_update and crl_age and time_until_expiry:
                     # Format: CRL: next_update=...; age=...; time_until_next=...
                     crl_info = f"CRL: next_update={next_update}; age={crl_age}; time_until_next={time_until_expiry}"
+                    msg_parts.append(crl_info)
+                elif crl_url:
+                    # At least include the URL if no other info is available
+                    crl_info = f"CRL: url={crl_url}; status=unknown"
                     msg_parts.append(crl_info)
             
             # Join all message parts
@@ -855,10 +864,20 @@ class CertificateChecker:
             'warnings': [crl_result['warning']] if crl_result.get('warning') else []
         }
         
+        # Store warnings temporarily for message construction
+        original_warnings = self.warnings[:]
+        self.warnings = crl_results['warnings']
+        
         # Send HTTP push if configured
         if crl_notification.get('http_push_url'):
             print(f"DEBUG: Sending CRL-specific notification to: {crl_notification['http_push_url']}", file=sys.stderr)
-            return self.send_http_push(crl_results, custom_url=crl_notification['http_push_url'])
+            result = self.send_http_push(crl_results, custom_url=crl_notification['http_push_url'])
+            # Restore original warnings
+            self.warnings = original_warnings
+            return result
+        
+        # Restore original warnings
+        self.warnings = original_warnings
         
         return False
     
