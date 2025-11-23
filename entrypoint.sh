@@ -1,9 +1,31 @@
 #!/bin/bash
 set -e
 
+# Function to parse JSON/YAML from environment variable
+parse_env_yaml() {
+    local env_var=$1
+    local yaml_content=$(eval echo \$$env_var)
+    
+    # Check if it looks like JSON (starts with { or [)
+    if echo "$yaml_content" | grep -qE '^[{\[]'; then
+        # Convert JSON to YAML using Python if available
+        python3 -c "
+import json, sys, yaml
+try:
+    data = json.loads('''$yaml_content''')
+    print(yaml.dump(data, default_flow_style=False))
+except:
+    print('')
+" 2>/dev/null || echo ""
+    else
+        # Assume it's already YAML
+        echo "$yaml_content"
+    fi
+}
+
 # If certificate path is provided via environment variable, create config
 # Also create config if CRL_ONLY is set or CRL_URLS is provided
-if ([ -n "$CERTIFICATE_PATH" ] || [ -n "$CRL_ONLY" ] || [ -n "$CRL_URLS" ]) && [ ! -f /app/config.yaml ]; then
+if ([ -n "$CERTIFICATE_PATH" ] || [ -n "$CRL_ONLY" ] || [ -n "$CRL_URLS" ] || [ -n "$CONFIG_YAML" ]) && [ ! -f /app/config.yaml ]; then
     echo "Creating config.yaml from environment variables..."
     
     # Start config file
@@ -40,6 +62,20 @@ EOF
     
     # Add notifications section
     echo "notifications:" >> /app/config.yaml
+    
+    # Handle CONFIG_YAML environment variable (allows complex YAML structures)
+    if [ -n "$CONFIG_YAML" ]; then
+        echo "" >> /app/config.yaml
+        echo "# Additional config from CONFIG_YAML environment variable" >> /app/config.yaml
+        parse_env_yaml "CONFIG_YAML" >> /app/config.yaml
+    fi
+    
+    # Handle CRL_NOTIFICATIONS as JSON/YAML string
+    if [ -n "$CRL_NOTIFICATIONS" ]; then
+        echo "" >> /app/config.yaml
+        echo "crl_notifications:" >> /app/config.yaml
+        parse_env_yaml "CRL_NOTIFICATIONS" | sed 's/^/  /' >> /app/config.yaml
+    fi
 
     # Support both HTTP_PUSH_URL and NOTIFICATIONS_HTTP_PUSH_URL
     HTTP_PUSH_URL_VALUE="${HTTP_PUSH_URL:-${NOTIFICATIONS_HTTP_PUSH_URL}}"
