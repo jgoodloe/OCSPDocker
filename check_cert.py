@@ -51,6 +51,13 @@ class CertificateChecker:
         
         # Override with environment variables
         config['certificate'] = os.getenv('CERTIFICATE_PATH', config.get('certificate'))
+        config['check_certificate'] = os.getenv('CHECK_CERTIFICATE', config.get('check_certificate', 'true')).lower() == 'true'
+        config['crl_only'] = os.getenv('CRL_ONLY', config.get('crl_only', 'false')).lower() == 'true'
+        config['crls'] = config.get('crls', [])  # List of CRL URLs to check directly
+        # Support CRL_URLS environment variable (comma-separated)
+        crl_urls_env = os.getenv('CRL_URLS')
+        if crl_urls_env:
+            config['crls'] = [url.strip() for url in crl_urls_env.split(',') if url.strip()]
         config['schedule_interval'] = os.getenv('SCHEDULE_INTERVAL', config.get('schedule_interval', '60'))
         config['cert_expiry_warning_hours'] = int(os.getenv('CERT_EXPIRY_WARNING_HOURS', config.get('cert_expiry_warning_hours', 24)))
         config['cert_expiry_warning_days'] = int(os.getenv('CERT_EXPIRY_WARNING_DAYS', config.get('cert_expiry_warning_days', 30)))
@@ -92,6 +99,9 @@ class CertificateChecker:
             }
         
         config['notifications'] = notifications
+        
+        # Load CRL-specific notifications
+        config['crl_notifications'] = config.get('crl_notifications', {})
         
         return config
     
@@ -305,36 +315,73 @@ class CertificateChecker:
     def analyze_certificate(self):
         """Analyze the certificate and return results"""
         print("=" * 60, file=sys.stderr)
-        print("CERTIFICATE ANALYSIS STARTED", file=sys.stderr)
+        print("CERTIFICATE/CRL ANALYSIS STARTED", file=sys.stderr)
         print("=" * 60, file=sys.stderr)
+        
+        self.warnings = []
+        results = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'status': 'ok',
+            'certificates': [],
+            'crls': [],
+            'warnings': []
+        }
+        
+        # Check if CRL-only mode
+        crl_only = self.config.get('crl_only', False)
+        check_certificate = self.config.get('check_certificate', True) and not crl_only
+        
+        # Check directly specified CRLs first
+        direct_crls = self.config.get('crls', [])
+        if direct_crls:
+            print(f"\n--- DIRECT CRL CHECKS ---", file=sys.stderr)
+            print(f"CHECK: Found {len(direct_crls)} CRL URL(s) specified directly", file=sys.stderr)
+            for crl_url in direct_crls:
+                if not crl_url or not crl_url.strip():
+                    continue
+                crl_url = crl_url.strip()
+                print(f"TEST: Checking direct CRL: {crl_url}", file=sys.stderr)
+                crl_check = self.check_crl_expiry(crl_url)
+                crl_check['source'] = 'direct'
+                results['crls'].append(crl_check)
+        
+        # If CRL-only mode, skip certificate checking
+        if crl_only:
+            print("INFO: CRL-only mode enabled - skipping certificate checks", file=sys.stderr)
+            results['warnings'] = self.warnings
+            if self.warnings:
+                results['status'] = 'warning'
+            print("\n" + "=" * 60, file=sys.stderr)
+            print(f"CRL ANALYSIS COMPLETE - Status: {results['status']}", file=sys.stderr)
+            print(f"Total CRLs checked: {len(results['crls'])}", file=sys.stderr)
+            print(f"Total warnings: {len(self.warnings)}", file=sys.stderr)
+            print("=" * 60, file=sys.stderr)
+            return results
+        
+        # Certificate checking (if enabled)
+        if not check_certificate:
+            print("INFO: Certificate checking disabled", file=sys.stderr)
+            results['warnings'] = self.warnings
+            if self.warnings:
+                results['status'] = 'warning'
+            return results
         
         cert_path = self.config.get('certificate')
         if not cert_path:
-            print("ERROR: Certificate path not specified", file=sys.stderr)
             return {
                 'error': 'Certificate path not specified',
                 'status': 'error'
             }
         
         if not os.path.exists(cert_path):
-            print(f"ERROR: Certificate file not found: {cert_path}", file=sys.stderr)
             return {
                 'error': f'Certificate file not found: {cert_path}',
                 'status': 'error'
             }
         
+        results['certificate_path'] = cert_path
         print(f"CHECK: Certificate file exists: {cert_path}", file=sys.stderr)
         print(f"CHECK: File size: {os.path.getsize(cert_path)} bytes", file=sys.stderr)
-        
-        self.warnings = []
-        results = {
-            'timestamp': datetime.utcnow().isoformat(),
-            'certificate_path': cert_path,
-            'status': 'ok',
-            'certificates': [],
-            'crls': [],
-            'warnings': []
-        }
         
         # Load main certificate
         print(f"TEST: Loading certificate from {cert_path}...", file=sys.stderr)
@@ -479,10 +526,15 @@ class CertificateChecker:
         except Exception as e:
             return None, f"Error reading certificate chain: {str(e)}"
     
-    def send_http_push(self, results):
+    def send_http_push(self, results, custom_url=None):
         """Send results via HTTP push"""
         notifications = self.config.get('notifications') or {}
         http_config = notifications.get('http_push')
+        
+        # Use custom URL if provided (for per-CRL notifications)
+        if custom_url:
+            http_config = {'url': custom_url}
+        
         if not http_config or not http_config.get('url'):
             print("DEBUG: HTTP push not configured or URL missing", file=sys.stderr)
             return False
@@ -760,6 +812,37 @@ class CertificateChecker:
         
         return sent
     
+    def send_crl_notification(self, crl_result):
+        """Send notification for a specific CRL using its configured endpoint"""
+        crl_url = crl_result.get('url', '')
+        crl_notifications = self.config.get('crl_notifications', {})
+        
+        # Check if this CRL has a specific notification endpoint
+        crl_notification = None
+        for crl_pattern, notification_config in crl_notifications.items():
+            if crl_pattern in crl_url or crl_url in crl_pattern:
+                crl_notification = notification_config
+                print(f"DEBUG: Found specific notification endpoint for CRL: {crl_url}", file=sys.stderr)
+                break
+        
+        if not crl_notification:
+            return False
+        
+        # Create a results object for this CRL only
+        crl_results = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'status': 'warning' if crl_result.get('warning') else 'ok',
+            'crls': [crl_result],
+            'warnings': [crl_result['warning']] if crl_result.get('warning') else []
+        }
+        
+        # Send HTTP push if configured
+        if crl_notification.get('http_push_url'):
+            print(f"DEBUG: Sending CRL-specific notification to: {crl_notification['http_push_url']}", file=sys.stderr)
+            return self.send_http_push(crl_results, custom_url=crl_notification['http_push_url'])
+        
+        return False
+    
     def run_check(self):
         """Run certificate check and send notifications"""
         print(f"[{datetime.now()}] Running certificate check...")
@@ -769,10 +852,20 @@ class CertificateChecker:
         if results.get('warnings'):
             print(f"Warnings: {', '.join(results['warnings'])}")
         
-        # Send notifications
+        # Send per-CRL notifications if configured
+        crls = results.get('crls', [])
+        crl_notifications_sent = []
+        for crl in crls:
+            if self.send_crl_notification(crl):
+                crl_notifications_sent.append(crl.get('url', 'Unknown'))
+        
+        if crl_notifications_sent:
+            print(f"Per-CRL notifications sent for: {', '.join(crl_notifications_sent)}")
+        
+        # Send general notifications
         sent = self.send_notifications(results)
         if sent:
-            print(f"Notifications sent to: {', '.join(sent)}")
+            print(f"General notifications sent to: {', '.join(sent)}")
         
         return results
     

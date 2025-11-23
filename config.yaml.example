@@ -1,10 +1,20 @@
 # Certificate Checker Configuration
 
 # Path to the certificate file to check (PEM or DER format)
+# Leave empty or set CRL_ONLY=true to skip certificate checking
 certificate: /app/certs/certificate.pem
 
 # Optional: Path to certificate chain file
 certificate_chain: /app/certs/chain.pem
+
+# CRL-only mode: Set to true to skip certificate checking and only check CRLs
+# crl_only: false
+
+# Direct CRL URLs to check (can be used with or without certificate)
+# Can be a list of URLs or comma-separated string
+crls:
+  - http://crl.example.com/crl1.crl
+  - http://crl.example.com/crl2.crl
 
 # Schedule interval in seconds
 # Common values: 60 (1 min), 300 (5 min), 900 (15 min), 3600 (1 hour)
@@ -46,4 +56,15 @@ notifications:
     auth_token: your-auth-token
     from: +1234567890
     to: +0987654321
+
+# CRL-specific notification endpoints
+# Map CRL URLs (or patterns) to specific notification endpoints
+crl_notifications:
+  # Example: Send notifications for a specific CRL to a different endpoint
+  "http://crl.example.com/crl1.crl":
+    http_push_url: http://192.168.2.5:3001/api/push/different-key?status=up&msg=OK
+  
+  # Example: Use pattern matching (if CRL URL contains this string)
+  "crl.xca.xpki.com":
+    http_push_url: http://192.168.2.5:3001/api/push/crl-specific-key?status=up&msg=OK
 
