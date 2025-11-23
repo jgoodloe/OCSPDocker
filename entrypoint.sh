@@ -6,19 +6,26 @@ parse_env_yaml() {
     local env_var=$1
     local yaml_content=$(eval echo \$$env_var)
     
+    if [ -z "$yaml_content" ]; then
+        return
+    fi
+    
     # Check if it looks like JSON (starts with { or [)
     if echo "$yaml_content" | grep -qE '^[{\[]'; then
         # Convert JSON to YAML using Python if available
         python3 -c "
 import json, sys, yaml
 try:
-    data = json.loads('''$yaml_content''')
-    print(yaml.dump(data, default_flow_style=False))
-except:
-    print('')
+    import sys
+    content = '''$yaml_content'''
+    data = json.loads(content)
+    print(yaml.dump(data, default_flow_style=False, allow_unicode=True))
+except Exception as e:
+    sys.stderr.write(f'Error parsing JSON: {e}\n')
+    sys.exit(1)
 " 2>/dev/null || echo ""
     else
-        # Assume it's already YAML
+        # Assume it's already YAML - just echo it
         echo "$yaml_content"
     fi
 }
@@ -62,20 +69,6 @@ EOF
     
     # Add notifications section
     echo "notifications:" >> /app/config.yaml
-    
-    # Handle CONFIG_YAML environment variable (allows complex YAML structures)
-    if [ -n "$CONFIG_YAML" ]; then
-        echo "" >> /app/config.yaml
-        echo "# Additional config from CONFIG_YAML environment variable" >> /app/config.yaml
-        parse_env_yaml "CONFIG_YAML" >> /app/config.yaml
-    fi
-    
-    # Handle CRL_NOTIFICATIONS as JSON/YAML string
-    if [ -n "$CRL_NOTIFICATIONS" ]; then
-        echo "" >> /app/config.yaml
-        echo "crl_notifications:" >> /app/config.yaml
-        parse_env_yaml "CRL_NOTIFICATIONS" | sed 's/^/  /' >> /app/config.yaml
-    fi
 
     # Support both HTTP_PUSH_URL and NOTIFICATIONS_HTTP_PUSH_URL
     HTTP_PUSH_URL_VALUE="${HTTP_PUSH_URL:-${NOTIFICATIONS_HTTP_PUSH_URL}}"
@@ -105,6 +98,38 @@ EOF
         echo "    auth_token: ${TWILIO_AUTH_TOKEN}" >> /app/config.yaml
         echo "    from: ${TWILIO_FROM}" >> /app/config.yaml
         echo "    to: ${TWILIO_TO}" >> /app/config.yaml
+    fi
+    
+    # Handle CRL_NOTIFICATIONS as JSON/YAML string (after notifications section is complete)
+    if [ -n "$CRL_NOTIFICATIONS" ]; then
+        echo "" >> /app/config.yaml
+        echo "crl_notifications:" >> /app/config.yaml
+        # Parse and indent the YAML/JSON content
+        parsed_content=$(parse_env_yaml "CRL_NOTIFICATIONS")
+        if [ -n "$parsed_content" ]; then
+            # Indent each line by 2 spaces
+            echo "$parsed_content" | sed 's/^/  /' >> /app/config.yaml
+        fi
+    fi
+    
+    # Handle CONFIG_YAML environment variable (allows complex YAML structures)
+    # This should be last as it can override other settings
+    if [ -n "$CONFIG_YAML" ]; then
+        echo "" >> /app/config.yaml
+        echo "# Additional config from CONFIG_YAML environment variable" >> /app/config.yaml
+        parsed_content=$(parse_env_yaml "CONFIG_YAML")
+        if [ -n "$parsed_content" ]; then
+            echo "$parsed_content" >> /app/config.yaml
+        fi
+    fi
+    
+    # Validate the generated YAML file
+    if command -v python3 &> /dev/null; then
+        if ! python3 -c "import yaml; yaml.safe_load(open('/app/config.yaml'))" 2>/dev/null; then
+            echo "ERROR: Generated config.yaml has syntax errors. Showing content:" >&2
+            cat /app/config.yaml >&2
+            exit 1
+        fi
     fi
 fi
 
