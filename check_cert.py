@@ -177,6 +177,10 @@ class CertificateChecker:
                 for name in dp.full_name:
                     if isinstance(name, x509.UniformResourceIdentifier):
                         crl_url = name.value
+                        # Skip LDAP URLs - no longer best practice
+                        if crl_url.lower().startswith('ldap://'):
+                            print(f"INFO: Skipping LDAP CRL URL (not best practice): {crl_url}", file=sys.stderr)
+                            continue
                         print(f"CHECK: Found CRL URL: {crl_url}", file=sys.stderr)
                         crl_info.append({
                             'url': crl_url,
@@ -193,7 +197,11 @@ class CertificateChecker:
         result = {
             'url': crl_url,
             'error': None,
+            'this_update': None,
             'next_update': None,
+            'crl_age': None,
+            'crl_age_hours': None,
+            'crl_age_days': None,
             'time_until_expiry': None,
             'hours_until_expiry': None,
             'minutes_until_expiry': None,
@@ -225,26 +233,38 @@ class CertificateChecker:
                     result['error'] = f"Failed to parse CRL: {str(e)}"
                     return result
             
-            # Get next update time
-            print(f"TEST: Extracting CRL next update time...", file=sys.stderr)
+            # Get this update and next update times
+            print(f"TEST: Extracting CRL update times...", file=sys.stderr)
             # Use UTC version to avoid deprecation warning
             try:
+                this_update = crl.last_update_utc.replace(tzinfo=None)
                 next_update = crl.next_update_utc.replace(tzinfo=None)
             except AttributeError:
                 # Fallback for older cryptography versions
+                this_update = crl.last_update.replace(tzinfo=None)
                 next_update = crl.next_update.replace(tzinfo=None)
             
+            print(f"TEST: CRL this update time: {this_update.isoformat()}", file=sys.stderr)
             print(f"TEST: CRL next update time: {next_update.isoformat()}", file=sys.stderr)
             now = datetime.utcnow()
             print(f"TEST: Current time (UTC): {now.isoformat()}", file=sys.stderr)
+            
+            # Calculate CRL age (time since last update)
+            crl_age = now - this_update
             time_until_expiry = next_update - now
+            print(f"TEST: CRL age: {crl_age}", file=sys.stderr)
             print(f"TEST: Time until CRL expiry: {time_until_expiry}", file=sys.stderr)
             
+            result['this_update'] = this_update.isoformat()
             result['next_update'] = next_update.isoformat()
+            result['crl_age'] = str(crl_age)
+            result['crl_age_hours'] = crl_age.total_seconds() / 3600
+            result['crl_age_days'] = crl_age.days
             result['time_until_expiry'] = str(time_until_expiry)
             result['hours_until_expiry'] = time_until_expiry.total_seconds() / 3600
             result['minutes_until_expiry'] = time_until_expiry.total_seconds() / 60
             
+            print(f"TEST: CRL age: {result['crl_age_hours']:.2f} hours ({result['crl_age_days']} days)", file=sys.stderr)
             print(f"TEST: Hours until CRL expiry: {result['hours_until_expiry']:.2f}", file=sys.stderr)
             print(f"TEST: Minutes until CRL expiry: {result['minutes_until_expiry']:.2f}", file=sys.stderr)
             print(f"TEST: Warning thresholds - Hours: {self.config['crl_expiry_warning_hours']}, Minutes: {self.config['crl_expiry_warning_minutes']}", file=sys.stderr)
@@ -470,19 +490,40 @@ class CertificateChecker:
         try:
             # Determine status - map to up/down
             result_status = results.get('status', 'unknown')
+            msg_parts = []
+            
             if result_status == 'ok':
                 status = 'up'
-                msg = 'OK'
+                msg_parts.append('OK')
             elif result_status == 'warning':
                 status = 'up'  # Still up, but with warning message
                 # Format: WARNING - [warning details]
                 if self.warnings:
-                    msg = 'WARNING - ' + '; '.join(self.warnings)
+                    msg_parts.append('WARNING - ' + '; '.join(self.warnings))
                 else:
-                    msg = 'WARNING'
+                    msg_parts.append('WARNING')
             else:  # error
                 status = 'down'
-                msg = 'ERROR'
+                msg_parts.append('ERROR')
+            
+            # Add CRL information to message if available
+            crls = results.get('crls', [])
+            for crl in crls:
+                if crl.get('error'):
+                    continue  # Skip CRLs with errors
+                
+                crl_url = crl.get('url', 'Unknown')
+                next_update = crl.get('next_update')
+                crl_age = crl.get('crl_age')
+                time_until_expiry = crl.get('time_until_expiry')
+                
+                if next_update and crl_age and time_until_expiry:
+                    # Format: CRL: next_update=...; age=...; time_until_next=...
+                    crl_info = f"CRL: next_update={next_update}; age={crl_age}; time_until_next={time_until_expiry}"
+                    msg_parts.append(crl_info)
+            
+            # Join all message parts
+            msg = ' | '.join(msg_parts) if msg_parts else 'OK'
             
             ocsp_status = 'OK'  # Simplified - would need actual OCSP check
             
