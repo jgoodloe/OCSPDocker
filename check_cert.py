@@ -864,11 +864,19 @@ class CertificateChecker:
         
         # Check if this CRL has a specific notification endpoint
         crl_notification = None
+        matched_pattern = None
         for crl_pattern, notification_config in crl_notifications.items():
             if crl_pattern in crl_url or crl_url in crl_pattern:
                 crl_notification = notification_config
+                matched_pattern = crl_pattern
+                endpoint_url = notification_config.get('http_push_url', 'N/A')
                 print(f"DEBUG: Found specific notification endpoint for CRL: {crl_url}", file=sys.stderr)
+                print(f"DEBUG: Pattern matched: {crl_pattern}", file=sys.stderr)
+                print(f"DEBUG: Endpoint URL: {endpoint_url}", file=sys.stderr)
                 break
+        
+        if not crl_notification:
+            print(f"DEBUG: No specific endpoint configured for CRL: {crl_url}", file=sys.stderr)
         
         if not crl_notification:
             return False
@@ -917,18 +925,58 @@ class CertificateChecker:
         
         # Send per-CRL notifications if configured
         crls = results.get('crls', [])
+        crl_notifications = self.config.get('crl_notifications', {})
+        crls_with_specific_endpoints = set()
         crl_notifications_sent = []
+        
         for crl in crls:
-            if self.send_crl_notification(crl):
-                crl_notifications_sent.append(crl.get('url', 'Unknown'))
+            crl_url = crl.get('url', '')
+            # Check if this CRL has a specific endpoint configured
+            has_specific_endpoint = False
+            if crl_notifications and isinstance(crl_notifications, dict):
+                for crl_pattern, notification_config in crl_notifications.items():
+                    if crl_pattern in crl_url or crl_url in crl_pattern:
+                        has_specific_endpoint = True
+                        crls_with_specific_endpoints.add(crl_url)
+                        break
+            
+            # Only send per-CRL notification if endpoint is configured
+            if has_specific_endpoint:
+                if self.send_crl_notification(crl):
+                    crl_notifications_sent.append(crl_url)
         
         if crl_notifications_sent:
             print(f"Per-CRL notifications sent for: {', '.join(crl_notifications_sent)}")
         
-        # Send general notifications
-        sent = self.send_notifications(results)
-        if sent:
-            print(f"General notifications sent to: {', '.join(sent)}")
+        # Send general notifications - but exclude CRLs that have specific endpoints
+        # Create a filtered results object for general notifications
+        general_results = results.copy()
+        if crls_with_specific_endpoints:
+            # Filter out CRLs that have specific endpoints
+            general_results['crls'] = [
+                crl for crl in results.get('crls', [])
+                if crl.get('url', '') not in crls_with_specific_endpoints
+            ]
+            # Recalculate status based on remaining CRLs
+            if general_results['crls']:
+                crl_errors = [crl for crl in general_results['crls'] if crl.get('error')]
+                if crl_errors:
+                    general_results['status'] = 'error'
+                elif any(crl.get('warning') for crl in general_results['crls']):
+                    general_results['status'] = 'warning'
+                else:
+                    general_results['status'] = 'ok'
+            else:
+                # If all CRLs have specific endpoints, don't send general notification
+                general_results = None
+        
+        # Send general notifications only if there are CRLs without specific endpoints
+        if general_results:
+            sent = self.send_notifications(general_results)
+            if sent:
+                print(f"General notifications sent to: {', '.join(sent)}")
+        elif crls_with_specific_endpoints and len(crls_with_specific_endpoints) == len(crls):
+            print("All CRLs have specific endpoints - skipping general notification")
         
         return results
     
